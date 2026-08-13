@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Redacted Document Preview</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 32px; color: #1e293b; }
+        main { max-width: 850px; margin: auto; background: white; padding: 36px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,.1); }
+        .actions { display: flex; gap: 12px; margin-bottom: 28px; }
+        a { background: #2563eb; color: white; border-radius: 6px; padding: 10px 16px; text-decoration: none; }
+        a.secondary { background: #475569; }
+        .document { border-top: 1px solid #e2e8f0; padding-top: 12px; line-height: 1.6; white-space: pre-wrap; }
+        .empty { color: #64748b; font-style: italic; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Redacted document preview</h1>
+        <div class="actions">
+            <a class="secondary" href="{% url 'index' %}">Redact another</a>
+            <a href="{% url 'download' %}">Download .docx</a>
+        </div>
+        <section class="document">
+            {% for paragraph in paragraphs %}
+                <p>{{ paragraph }}</p>
+            {% empty %}
+                <p class="empty">No text could be extracted for browser preview. You can still download the redacted document.</p>
+            {% endfor %}
+        </section>
+    </main>
+</body>
+</html>

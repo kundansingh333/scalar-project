@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PII Redaction Tool</title>
+    <style>
+        body{
+            font-family: Arial, sans-serif;
+            background:#f4f4f4;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            height:100vh;
+        }
+
+        .box{
+            background:white;
+            padding:30px;
+            border-radius:10px;
+            box-shadow:0 4px 10px rgba(0,0,0,0.1);
+            width:420px;
+            text-align:center;
+        }
+
+        .hidden { display: none; }
+
+        .loading {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 8px;
+            background: #eff6ff;
+            color: #1e3a8a;
+        }
+
+        .spinner {
+            width: 26px;
+            height: 26px;
+            margin: 0 auto 10px;
+            border: 4px solid #bfdbfe;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        input[type=file]{
+            margin:20px 0;
+        }
+
+        button{
+            background:#2563eb;
+            color:white;
+            border:none;
+            padding:12px 24px;
+            border-radius:6px;
+            cursor:pointer;
+        }
+
+        button:hover{
+            background:#1d4ed8;
+        }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>PII Redaction Tool</h2>
+
+    <form id="redaction-form" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <input type="file" name="document" accept=".docx" required>
+
+        <br>
+
+        <button type="submit">Redact Document</button>
+    </form>
+
+    <div id="loading" class="loading hidden" aria-live="polite">
+        <div class="spinner"></div>
+        <strong>Redacting your document…</strong>
+        <p id="estimate">Estimated time: about 15 seconds</p>
+        <small>Please keep this page open while processing finishes.</small>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById("redaction-form");
+    const fileInput = form.querySelector('input[name="document"]');
+    const loading = document.getElementById("loading");
+    const estimate = document.getElementById("estimate");
+
+    form.addEventListener("submit", () => {
+        const fileSizeInMb = fileInput.files[0].size / (1024 * 1024);
+        const seconds = Math.max(15, Math.ceil(10 + fileSizeInMb * 3));
+        estimate.textContent = `Estimated time: about ${seconds} seconds`;
+        loading.classList.remove("hidden");
+        form.querySelector("button").disabled = true;
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Redaction Complete</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f4; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,.1); width: 420px; text-align: center; }
+        .success { color: #15803d; font-size: 2rem; margin: 0; }
+        .actions { display: flex; gap: 12px; justify-content: center; margin-top: 24px; }
+        a { background: #2563eb; color: white; border-radius: 6px; padding: 12px 18px; text-decoration: none; }
+        a.secondary { background: #475569; }
+    </style>
+</head>
+<body>
+    <main class="box">
+        <p class="success">✓</p>
+        <h2>Redaction complete</h2>
+        <p>Your redacted document is ready.</p>
+        <div class="actions">
+            <a class="secondary" href="{% url 'preview' %}">Preview</a>
+            <a href="{% url 'download' %}">Download .docx</a>
+        </div>
+    </main>
+</body>
+</html>

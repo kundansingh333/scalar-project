@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+venv1/
+
+# Django
+db.sqlite3
+staticfiles/
+
+# Local redaction artifacts
+input/
+output/
+temp_docx/
+temp_redacted.zip
+
+# Editor and operating-system files
+.DS_Store
+.vscode/
+.idea/
