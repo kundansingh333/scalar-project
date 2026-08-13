@@ -89,6 +89,10 @@ DATABASES = {
     }
 }
 
+# Vercel functions have a read-only deployment filesystem. Store the short-lived
+# redaction result reference in the user's signed cookie instead of SQLite.
+SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
