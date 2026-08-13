@@ -238,7 +238,10 @@ def detect_spacy_entities(text):
         "dates": [],
     }
 
-    chunk_size = 50_000
+    # Keep spaCy's temporary tensor allocations within the memory available on
+    # small deployment instances. Larger chunks can cause the worker to be
+    # terminated while processing long DOCX runs.
+    chunk_size = 2_000
 
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
