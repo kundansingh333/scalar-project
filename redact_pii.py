@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import tempfile
 import zipfile
 
 import spacy
@@ -369,10 +370,7 @@ def blackout_identity_images_in_docx(docx_path):
     All logos and other images remain unchanged.
     """
 
-    temp_dir = "temp_docx"
-
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
+    temp_dir = tempfile.mkdtemp(prefix="pii-redaction-")
 
     with zipfile.ZipFile(docx_path, "r") as zip_ref:
         zip_ref.extractall(temp_dir)
@@ -390,7 +388,8 @@ def blackout_identity_images_in_docx(docx_path):
                 blackout_image(os.path.join(media_dir, filename))
 
     # Rebuild the DOCX
-    temp_zip = "temp_redacted.zip"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as temp_file:
+        temp_zip = temp_file.name
 
     with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zip_out:
         for root, dirs, files in os.walk(temp_dir):
@@ -399,8 +398,10 @@ def blackout_identity_images_in_docx(docx_path):
                 arcname = os.path.relpath(full_path, temp_dir)
                 zip_out.write(full_path, arcname)
 
-    os.replace(temp_zip, docx_path)
-    shutil.rmtree(temp_dir)
+    try:
+        os.replace(temp_zip, docx_path)
+    finally:
+        shutil.rmtree(temp_dir)
 
 
 # =====================================================
