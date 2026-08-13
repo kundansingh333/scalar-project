@@ -1,5 +1,6 @@
 Django==6.1
 Faker==40.36.0
+gunicorn==25.1.0
 Pillow==12.3.0
 python-docx==1.2.0
 spacy==3.8.13
