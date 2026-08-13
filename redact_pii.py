@@ -4,7 +4,6 @@ import shutil
 import tempfile
 import zipfile
 
-import spacy
 from faker import Faker
 from PIL import Image
 from docx import Document
@@ -13,8 +12,24 @@ from docx import Document
 # Configuration
 # =====================================================
 
-nlp = spacy.load("en_core_web_sm")
-nlp.max_length = 5_000_000
+nlp = None
+
+
+def get_nlp():
+    """Load the NLP model only when a document needs redaction.
+
+    Keeping this out of module import makes the Django web worker ready quickly
+    on small deployment instances.
+    """
+    global nlp
+
+    if nlp is None:
+        import spacy
+
+        nlp = spacy.load("en_core_web_sm")
+        nlp.max_length = 5_000_000
+
+    return nlp
 
 fake = Faker()
 
@@ -227,7 +242,7 @@ def detect_spacy_entities(text):
 
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
-        doc = nlp(chunk)
+        doc = get_nlp()(chunk)
 
         for ent in doc.ents:
             if ent.label_ == "PERSON":
