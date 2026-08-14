@@ -118,29 +118,29 @@ def fake_date(real_date):
 # =====================================================
 
 EMAIL_PATTERN = re.compile(
-    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 )
 
 PHONE_PATTERN = re.compile(
-    r"\\+?\\s?91[\\s-]?\\d{2}[\\s-]?\\d{4}[\\s-]?\\d{4}"
-    r"|\\+?\\s?91[\\s-]?\\d{2}[\\s-]?\\d{8}"
-    r"|\\b\\d{10}\\b"
+    r"\+?\s?91[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{4}"
+    r"|\+?\s?91[\s-]?\d{2}[\s-]?\d{8}"
+    r"|\b\d{10}\b"
 )
 
 IP_PATTERN = re.compile(
-    r"\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b"
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
 )
 
 DOB_PATTERN = re.compile(
-    r"\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b"
+    r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b"
 )
 
 SSN_PATTERN = re.compile(
-    r"\\b\\d{3}-\\d{2}-\\d{4}\\b"
+    r"\b\d{3}-\d{2}-\d{4}\b"
 )
 
 CREDIT_CARD_PATTERN = re.compile(
-    r"\\b(?:\\d[ -]*?){13,16}\\b"
+    r"\b(?:\d[ -]*?){13,16}\b"
 )
 
 # =====================================================
@@ -201,13 +201,13 @@ def clean_orgs(orgs):
 
 def normalize_text(text):
     text = re.sub(
-        r"(?<=[A-Za-z])\\n(?=[A-Za-z])",
+        r"(?<=[A-Za-z])\n(?=[A-Za-z])",
         "",
         text
     )
 
-    text = text.replace("\\n", " ")
-    text = re.sub(r"\\s+", " ", text)
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
 
     return text.strip()
 
@@ -247,7 +247,7 @@ def detect_spacy_entities(text):
     # Keep spaCy's temporary tensor allocations within the memory available on
     # small deployment instances. Larger chunks can cause the worker to be
     # terminated while processing long DOCX runs.
-    chunk_size = 500
+    chunk_size = 5000
 
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
@@ -319,7 +319,7 @@ def redact_text(text):
     for date in spacy_entities["dates"]:
 
         if re.match(
-            r"^[A-Za-z]+ \\d{1,2}, \\d{4}$",
+            r"^[A-Za-z]+ \d{1,2}, \d{4}$",
             date
         ):
             text = text.replace(date, fake_date(date))

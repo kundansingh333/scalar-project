@@ -1,6 +1,7 @@
 from django.shortcuts import render
 
 # Create your views here.
+import logging
 import tempfile
 from pathlib import Path
 from uuid import uuid4
@@ -12,42 +13,53 @@ from docx import Document
 
 from redact_pii import (
     redact_document,
-    blackout_identity_images_in_docx
+    blackout_identity_images_in_docx,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def index(request):
     if request.method == "POST" and request.FILES.get("document"):
         uploaded = request.FILES["document"]
-        uploaded = request.FILES["document"]
 
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".docx"
-        ) as temp_input:
+        try:
+            # Write uploaded file to a temp path
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".docx"
+            ) as temp_input:
+                for chunk in uploaded.chunks():
+                    temp_input.write(chunk)
+                input_path = temp_input.name
 
-            for chunk in uploaded.chunks():
-                temp_input.write(chunk)
+            output_path = str(
+                Path(tempfile.gettempdir()) / f"redacted-{uuid4()}.docx"
+            )
 
-            input_path = temp_input.name
+            doc = Document(input_path)
+            redacted = redact_document(doc)
+            redacted.save(output_path)
 
-        output_path = str(
-            Path(tempfile.gettempdir()) / f"redacted-{uuid4()}.docx"
-        )
+            blackout_identity_images_in_docx(output_path)
 
-        doc = Document(input_path)
+            # Stream the file directly in this response — avoids storing
+            # a temp-file path in the session, which breaks on Render's
+            # ephemeral filesystem when a different worker handles /download.
+            output_name = f"{Path(uploaded.name).stem}_redacted.docx"
+            return FileResponse(
+                open(output_path, "rb"),
+                as_attachment=True,
+                filename=output_name,
+            )
 
-        redacted = redact_document(doc)
-        redacted.save(output_path)
-
-        blackout_identity_images_in_docx(output_path)
-
-        request.session["redacted_document_path"] = output_path
-        request.session["redacted_document_name"] = (
-            f"{Path(uploaded.name).stem}_redacted.docx"
-        )
-
-        return render(request, "redactor/complete.html")
+        except Exception as exc:
+            logger.exception("Redaction failed: %s", exc)
+            return render(
+                request,
+                "redactor/index.html",
+                {"error": "Redaction failed. Please ensure the file is a valid .docx document and try again."},
+            )
 
     return render(request, "redactor/index.html")
 
