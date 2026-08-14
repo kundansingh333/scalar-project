@@ -250,83 +250,86 @@ def detect_spacy_entities(text):
     return entities
 
 # =====================================================
-# Redaction Engine
+# Redaction Engine & DOCX Processing
 # =====================================================
 
-def redact_text(text):
-    regex_entities = detect_regex_pii(text)
-
-    # Replace structured entities first
-    for email in regex_entities["emails"]:
-        text = text.replace(email, fake_email(email))
-
-    for phone in regex_entities["phones"]:
-        text = text.replace(phone, fake_phone(phone))
-
-    # Skip spaCy on extremely large blocks
-    if len(text) > 50_000:
-        return text
-
-    spacy_entities = detect_spacy_entities(text)
-
-    # Replace longer entities first
-    for person in sorted(
-        spacy_entities["persons"],
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(person, fake_name(person))
-
-    for org in sorted(
-        spacy_entities["organizations"],
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(org, fake_company(org))
-
-    for loc in sorted(
-        spacy_entities["locations"],
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(loc, fake_location(loc))
-
-    # Replace only full calendar dates
-    for date in spacy_entities["dates"]:
-
-        if re.match(
-            r"^[A-Za-z]+ \d{1,2}, \d{4}$",
-            date
-        ):
-            text = text.replace(date, fake_date(date))
-
-    return text
-
-# =====================================================
-# DOCX Processing
-# =====================================================
-
-def redact_paragraph(paragraph):
-    for run in paragraph.runs:
-
-        if run.text.strip():
-            normalized = normalize_text(run.text)
-            run.text = redact_text(normalized)
-
-
-def redact_tables(doc):
+def redact_document(doc):
+    """
+    Extracts all text globally, runs expensive NLP once, 
+    and applies fast string replacements across all document runs.
+    This prevents OOM kills and timeouts on large documents.
+    """
+    # 1. Gather all text for global context
+    all_text = []
+    
+    def extract_text_from_paragraphs(paragraphs):
+        for p in paragraphs:
+            if p.text.strip():
+                all_text.append(normalize_text(p.text))
+                
+    extract_text_from_paragraphs(doc.paragraphs)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    redact_paragraph(paragraph)
+                extract_text_from_paragraphs(cell.paragraphs)
+                
+    full_text = "\n".join(all_text)
+    
+    # 2. Global detection (NLP runs ONCE)
+    regex_entities = detect_regex_pii(full_text)
+    spacy_entities = {"persons": [], "organizations": [], "locations": [], "dates": []}
+    
+    if len(full_text) <= 5_000_000:  # spacy max length limit
+        spacy_entities = detect_spacy_entities(full_text)
+        
+    # Pre-sort entities by length (longest first) to prevent partial replacements
+    emails = sorted(set(regex_entities["emails"]), key=len, reverse=True)
+    phones = sorted(set(regex_entities["phones"]), key=len, reverse=True)
+    
+    persons = sorted(spacy_entities["persons"], key=len, reverse=True)
+    orgs = sorted(spacy_entities["organizations"], key=len, reverse=True)
+    locs = sorted(spacy_entities["locations"], key=len, reverse=True)
+    dates = []
+    for d in spacy_entities["dates"]:
+        if re.match(r"^[A-Za-z]+ \d{1,2}, \d{4}$", d):
+            dates.append(d)
+    dates = sorted(dates, key=len, reverse=True)
 
+    # 3. Fast global replacement function
+    def apply_redaction(text):
+        if not text.strip():
+            return text
+            
+        text = normalize_text(text)
+        
+        for email in emails:
+            if email in text: text = text.replace(email, fake_email(email))
+        for phone in phones:
+            if phone in text: text = text.replace(phone, fake_phone(phone))
+            
+        for person in persons:
+            if person in text: text = text.replace(person, fake_name(person))
+        for org in orgs:
+            if org in text: text = text.replace(org, fake_company(org))
+        for loc in locs:
+            if loc in text: text = text.replace(loc, fake_location(loc))
+        for date in dates:
+            if date in text: text = text.replace(date, fake_date(date))
+            
+        return text
 
-def redact_document(doc):
-    for paragraph in doc.paragraphs:
-        redact_paragraph(paragraph)
+    # 4. Apply to all runs
+    def redact_paragraphs_in_place(paragraphs):
+        for p in paragraphs:
+            for run in p.runs:
+                if run.text.strip():
+                    run.text = apply_redaction(run.text)
 
-    redact_tables(doc)
+    redact_paragraphs_in_place(doc.paragraphs)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                redact_paragraphs_in_place(cell.paragraphs)
 
     return doc
 
