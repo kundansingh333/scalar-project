@@ -26,7 +26,13 @@ def get_nlp():
     if nlp is None:
         import spacy
 
-        nlp = spacy.load("en_core_web_sm")
+        # Redaction only needs named-entity recognition. Excluding the other
+        # pipeline components substantially reduces memory use on Render's
+        # 512 MB free instance.
+        nlp = spacy.load(
+            "en_core_web_sm",
+            exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
+        )
         nlp.max_length = 5_000_000
 
     return nlp
@@ -241,7 +247,7 @@ def detect_spacy_entities(text):
     # Keep spaCy's temporary tensor allocations within the memory available on
     # small deployment instances. Larger chunks can cause the worker to be
     # terminated while processing long DOCX runs.
-    chunk_size = 2_000
+    chunk_size = 500
 
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size]
