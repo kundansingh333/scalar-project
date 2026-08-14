@@ -1,13 +1,14 @@
 import os
 
-# Render sets the PORT environment variable. Default to 10000 (Render's
-# standard port for web services) if not set (e.g. local dev).
-bind = f"0.0.0.0:{os.environ.get('PORT', '10000')}"
+# Render sets PORT dynamically; default to 10000 (Render's standard web port)
+bind = "0.0.0.0:{}".format(os.environ.get("PORT", "10000"))
 
-# Single worker: the spaCy model is loaded once into one process.
-# Multiple workers would each load a copy, immediately exhausting the
-# 512 MB RAM available on Render's free tier.
+# Single worker: spaCy model is loaded once at startup.
+# Multiple workers would each load a copy → OOM on 512 MB free tier.
 workers = 1
 
-# 2-minute timeout: large DOCX files can take 30-90 seconds to redact.
+# 2-minute request timeout. Large documents can take 60–90 s to redact.
 timeout = 120
+
+# Keep-alive for persistent connections
+keepalive = 5

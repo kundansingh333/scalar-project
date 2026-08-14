@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import zipfile
 
+import spacy
 from faker import Faker
 from PIL import Image
 from docx import Document
@@ -12,29 +13,8 @@ from docx import Document
 # Configuration
 # =====================================================
 
-nlp = None
-
-
-def get_nlp():
-    """Load the NLP model only when a document needs redaction.
-
-    Keeping this out of module import makes the Django web worker ready quickly
-    on small deployment instances.
-    """
-    global nlp
-
-    if nlp is None:
-        import spacy
-
-        # Only NER pipeline components are needed for redaction.
-        # Excluding everything else reduces peak memory on Render's free tier.
-        nlp = spacy.load(
-            "en_core_web_sm",
-            exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
-        )
-        nlp.max_length = 5_000_000
-
-    return nlp
+nlp = spacy.load("en_core_web_sm")
+nlp.max_length = 5_000_000
 
 fake = Faker()
 
@@ -232,7 +212,7 @@ def detect_regex_pii(text):
     }
 
 # =====================================================
-# spaCy Detection  — called ONCE per document
+# spaCy Detection
 # =====================================================
 
 def detect_spacy_entities(text):
@@ -243,12 +223,12 @@ def detect_spacy_entities(text):
         "dates": [],
     }
 
-    # Use nlp.pipe() to stream chunks through the model in a single pipeline
-    # call — much more memory-efficient than calling nlp() per chunk.
-    chunk_size = 2000
-    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    chunk_size = 50_000
 
-    for doc in get_nlp().pipe(chunks, batch_size=8):
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i:i + chunk_size]
+        doc = nlp(chunk)
+
         for ent in doc.ents:
             if ent.label_ == "PERSON":
                 entities["persons"].append(ent.text)
@@ -273,77 +253,52 @@ def detect_spacy_entities(text):
 # Redaction Engine
 # =====================================================
 
-def _get_all_doc_text(doc):
-    """Collect all text from a DOCX in a single pass for NLP analysis."""
-    parts = []
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            if run.text.strip():
-                parts.append(run.text)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        if run.text.strip():
-                            parts.append(run.text)
-    return " ".join(parts)
-
-
-def _build_replacement_maps(full_text):
-    """
-    Run regex and spaCy ONCE on the full document text, pre-populating
-    the global maps so individual run replacement is a pure string-substitute.
-    """
-    # --- Regex PII ---
-    regex_entities = detect_regex_pii(full_text)
-    for email in regex_entities["emails"]:
-        fake_email(email)
-    for phone in regex_entities["phones"]:
-        fake_phone(phone)
-
-    # --- spaCy PII (skip on extremely large documents) ---
-    if len(full_text) <= 500_000:
-        spacy_entities = detect_spacy_entities(full_text)
-        for person in spacy_entities["persons"]:
-            fake_name(person)
-        for org in spacy_entities["organizations"]:
-            fake_company(org)
-        for loc in spacy_entities["locations"]:
-            fake_location(loc)
-        for date in spacy_entities["dates"]:
-            if re.match(r"^[A-Za-z]+ \d{1,2}, \d{4}$", date):
-                fake_date(date)
-
-
 def redact_text(text):
-    """
-    Apply pre-computed replacement maps to a single text fragment.
-    spaCy is NOT called here — it runs once at document level.
-    """
-    # Emails
-    for original, replacement in email_map.items():
-        text = text.replace(original, replacement)
+    regex_entities = detect_regex_pii(text)
 
-    # Phones
-    for original, replacement in phone_map.items():
-        text = text.replace(original, replacement)
+    # Replace structured entities first
+    for email in regex_entities["emails"]:
+        text = text.replace(email, fake_email(email))
 
-    # Persons (longer matches first to avoid partial replacements)
-    for original in sorted(name_map, key=len, reverse=True):
-        text = text.replace(original, name_map[original])
+    for phone in regex_entities["phones"]:
+        text = text.replace(phone, fake_phone(phone))
 
-    # Organisations
-    for original in sorted(company_map, key=len, reverse=True):
-        text = text.replace(original, company_map[original])
+    # Skip spaCy on extremely large blocks
+    if len(text) > 50_000:
+        return text
 
-    # Locations
-    for original in sorted(location_map, key=len, reverse=True):
-        text = text.replace(original, location_map[original])
+    spacy_entities = detect_spacy_entities(text)
 
-    # Dates
-    for original, replacement in date_map.items():
-        text = text.replace(original, replacement)
+    # Replace longer entities first
+    for person in sorted(
+        spacy_entities["persons"],
+        key=len,
+        reverse=True,
+    ):
+        text = text.replace(person, fake_name(person))
+
+    for org in sorted(
+        spacy_entities["organizations"],
+        key=len,
+        reverse=True,
+    ):
+        text = text.replace(org, fake_company(org))
+
+    for loc in sorted(
+        spacy_entities["locations"],
+        key=len,
+        reverse=True,
+    ):
+        text = text.replace(loc, fake_location(loc))
+
+    # Replace only full calendar dates
+    for date in spacy_entities["dates"]:
+
+        if re.match(
+            r"^[A-Za-z]+ \d{1,2}, \d{4}$",
+            date
+        ):
+            text = text.replace(date, fake_date(date))
 
     return text
 
@@ -368,17 +323,6 @@ def redact_tables(doc):
 
 
 def redact_document(doc):
-    # Clear maps so each request gets a clean slate (important for
-    # consistency and to prevent cross-request data leakage).
-    for m in (name_map, email_map, phone_map, company_map, location_map, date_map):
-        m.clear()
-
-    # === STEP 1: Single NLP pass over the full document ===
-    # Collect all text, run regex + spaCy once, populate replacement maps.
-    full_text = _get_all_doc_text(doc)
-    _build_replacement_maps(full_text)
-
-    # === STEP 2: Fast substitution pass — no NLP, just string.replace() ===
     for paragraph in doc.paragraphs:
         redact_paragraph(paragraph)
 
@@ -389,29 +333,6 @@ def redact_document(doc):
 # =====================================================
 # Image Redaction (Only Aadhaar / PAN Images)
 # =====================================================
-
-def is_identity_document(image_path):
-    try:
-        image = Image.open(image_path)
-        text = pytesseract.image_to_string(image).lower()
-
-        keywords = [
-            "aadhaar",
-            "aadhar",
-            "government of india",
-            "unique identification authority of india",
-            "permanent account number",
-            "income tax department",
-            "income tax",
-            "pan",
-        ]
-
-        return any(keyword in text for keyword in keywords)
-
-    except Exception:
-        return False
-
-
 
 def blackout_image(image_path):
     """Replace the image with a solid black image of the same size."""
@@ -424,56 +345,50 @@ def blackout_identity_images_in_docx(docx_path):
     """
     Black out only the PAN and Aadhaar images (image4.png and image5.png).
     All logos and other images remain unchanged.
+    Uses proper temp directories so concurrent requests don't conflict.
     """
-
-    temp_dir = tempfile.mkdtemp(prefix="pii-redaction-")
-
-    with zipfile.ZipFile(docx_path, "r") as zip_ref:
-        zip_ref.extractall(temp_dir)
-
-    media_dir = os.path.join(temp_dir, "word", "media")
-
-    # In your uploaded prospectus:
-    # image4.png = PAN card
-    # image5.png = Aadhaar card
-    identity_images = {"image4.png", "image5.png"}
-
-    if os.path.exists(media_dir):
-        for filename in os.listdir(media_dir):
-            if filename in identity_images:
-                blackout_image(os.path.join(media_dir, filename))
-
-    # Rebuild the DOCX
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as temp_file:
-        temp_zip = temp_file.name
-
-    with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zip_out:
-        for root, dirs, files in os.walk(temp_dir):
-            for file in files:
-                full_path = os.path.join(root, file)
-                arcname = os.path.relpath(full_path, temp_dir)
-                zip_out.write(full_path, arcname)
+    temp_dir = tempfile.mkdtemp(prefix="pii_redact_")
 
     try:
+        with zipfile.ZipFile(docx_path, "r") as zip_ref:
+            zip_ref.extractall(temp_dir)
+
+        media_dir = os.path.join(temp_dir, "word", "media")
+        identity_images = {"image4.png", "image5.png"}
+
+        if os.path.exists(media_dir):
+            for filename in os.listdir(media_dir):
+                if filename in identity_images:
+                    blackout_image(os.path.join(media_dir, filename))
+
+        # Rebuild the DOCX into a fresh temp file then replace original
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            temp_zip = tmp.name
+
+        with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zip_out:
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    arcname = os.path.relpath(full_path, temp_dir)
+                    zip_out.write(full_path, arcname)
+
         os.replace(temp_zip, docx_path)
+
     finally:
-        shutil.rmtree(temp_dir)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # =====================================================
-# Main
+# Main (standalone script usage)
 # =====================================================
-
 def main():
     input_path = "input/Red Herring Prospectus.docx"
     output_path = "output/Red_Herring_Prospectus_Redacted.docx"
 
-    # Step 1: Redact editable text
     doc = load_document(input_path)
     redacted_doc = redact_document(doc)
     redacted_doc.save(output_path)
 
-    # Step 2: Black out only PAN and Aadhaar images
     blackout_identity_images_in_docx(output_path)
 
     print("Redaction complete!")

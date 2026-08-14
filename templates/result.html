@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redaction Complete — PII Redactor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4ff;
+      min-height: 100vh;
+      padding: 32px 16px;
+    }
+
+    .page-wrap {
+      max-width: 860px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Success banner */
+    .banner {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(37,99,235,0.09);
+      padding: 28px 32px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .check-circle {
+      width: 56px;
+      height: 56px;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      flex-shrink: 0;
+    }
+
+    .banner-text h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #15803d;
+      letter-spacing: -0.02em;
+    }
+
+    .banner-text p {
+      font-size: 0.88rem;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    .banner-text p strong {
+      color: #1e293b;
+    }
+
+    .actions {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 20px;
+      border-radius: 10px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: background 0.18s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .btn-primary {
+      background: #2563eb;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #334155;
+    }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    /* Preview card */
+    .preview-card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(37,99,235,0.09);
+      overflow: hidden;
+    }
+
+    .preview-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .preview-header h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 0.72rem;
+      background: #eff6ff;
+      color: #1d4ed8;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 500;
+    }
+
+    .preview-body {
+      padding: 20px 24px;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+
+    .para {
+      font-size: 0.875rem;
+      color: #334155;
+      line-height: 1.65;
+      padding: 8px 0;
+      border-bottom: 1px solid #f8fafc;
+    }
+
+    .para:last-child { border-bottom: none; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+
+    /* Scrollbar */
+    .preview-body::-webkit-scrollbar { width: 6px; }
+    .preview-body::-webkit-scrollbar-track { background: #f8fafc; }
+    .preview-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+    @media (max-width: 600px) {
+      .banner { flex-direction: column; gap: 14px; }
+      .actions { margin-left: 0; width: 100%; }
+      .btn { flex: 1; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- Success banner -->
+  <div class="banner">
+    <div class="check-circle">✓</div>
+    <div class="banner-text">
+      <h1>Redaction complete</h1>
+      <p>Your file is ready — <strong>{{ filename }}</strong></p>
+    </div>
+    <div class="actions">
+      <a href="/" class="btn btn-secondary">↩ Redact another</a>
+      <a href="/download/{{ file_id }}" class="btn btn-primary">⬇ Download .docx</a>
+    </div>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-card">
+    <div class="preview-header">
+      <h2>📄 Document Preview <span class="badge">Redacted</span></h2>
+      <a href="/download/{{ file_id }}" class="btn btn-primary" style="padding:8px 16px;font-size:0.82rem;">Download</a>
+    </div>
+    <div class="preview-body">
+      {% if paragraphs %}
+        {% for para in paragraphs %}
+          <div class="para">{{ para }}</div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          No text could be extracted for preview.<br>Download the file to view the redacted document.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

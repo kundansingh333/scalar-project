@@ -1,1 +1,1 @@
-web: gunicorn pii_web.wsgi:application --config gunicorn.conf.py
+web: gunicorn app:app --config gunicorn.conf.py

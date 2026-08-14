@@ -2,12 +2,10 @@ services:
   - type: web
     name: pii-redactor
     runtime: python
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: gunicorn pii_web.wsgi:application --config gunicorn.conf.py
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --config gunicorn.conf.py
     envVars:
-      - key: DEBUG
-        value: "False"
-      - key: ALLOWED_HOSTS
-        value: ".onrender.com"
       - key: SECRET_KEY
         generateValue: true
+      - key: DEBUG
+        value: "0"
