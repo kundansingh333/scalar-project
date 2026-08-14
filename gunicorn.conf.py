@@ -1,10 +1,13 @@
-# gunicorn.conf.py
-# Applied automatically when gunicorn is started without an explicit config flag.
-# On Render's free tier (512 MB RAM) a single worker keeps the spaCy model
-# loaded in memory exactly once.  The 120-second timeout gives the redaction
-# pipeline enough headroom to process a large DOCX without Render killing the
-# worker mid-request.
+import os
 
+# Render sets the PORT environment variable. Default to 10000 (Render's
+# standard port for web services) if not set (e.g. local dev).
+bind = f"0.0.0.0:{os.environ.get('PORT', '10000')}"
+
+# Single worker: the spaCy model is loaded once into one process.
+# Multiple workers would each load a copy, immediately exhausting the
+# 512 MB RAM available on Render's free tier.
 workers = 1
+
+# 2-minute timeout: large DOCX files can take 30-90 seconds to redact.
 timeout = 120
-bind = "0.0.0.0:8000"

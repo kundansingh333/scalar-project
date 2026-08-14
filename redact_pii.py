@@ -26,9 +26,8 @@ def get_nlp():
     if nlp is None:
         import spacy
 
-        # Redaction only needs named-entity recognition. Excluding the other
-        # pipeline components substantially reduces memory use on Render's
-        # 512 MB free instance.
+        # Only NER pipeline components are needed for redaction.
+        # Excluding everything else reduces peak memory on Render's free tier.
         nlp = spacy.load(
             "en_core_web_sm",
             exclude=["tagger", "parser", "lemmatizer", "attribute_ruler"],
@@ -233,7 +232,7 @@ def detect_regex_pii(text):
     }
 
 # =====================================================
-# spaCy Detection
+# spaCy Detection  — called ONCE per document
 # =====================================================
 
 def detect_spacy_entities(text):
@@ -244,15 +243,12 @@ def detect_spacy_entities(text):
         "dates": [],
     }
 
-    # Keep spaCy's temporary tensor allocations within the memory available on
-    # small deployment instances. Larger chunks can cause the worker to be
-    # terminated while processing long DOCX runs.
-    chunk_size = 5000
+    # Use nlp.pipe() to stream chunks through the model in a single pipeline
+    # call — much more memory-efficient than calling nlp() per chunk.
+    chunk_size = 2000
+    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
 
-    for i in range(0, len(text), chunk_size):
-        chunk = text[i:i + chunk_size]
-        doc = get_nlp()(chunk)
-
+    for doc in get_nlp().pipe(chunks, batch_size=8):
         for ent in doc.ents:
             if ent.label_ == "PERSON":
                 entities["persons"].append(ent.text)
@@ -277,52 +273,77 @@ def detect_spacy_entities(text):
 # Redaction Engine
 # =====================================================
 
-def redact_text(text):
-    regex_entities = detect_regex_pii(text)
+def _get_all_doc_text(doc):
+    """Collect all text from a DOCX in a single pass for NLP analysis."""
+    parts = []
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            if run.text.strip():
+                parts.append(run.text)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        if run.text.strip():
+                            parts.append(run.text)
+    return " ".join(parts)
 
-    # Replace structured entities first
+
+def _build_replacement_maps(full_text):
+    """
+    Run regex and spaCy ONCE on the full document text, pre-populating
+    the global maps so individual run replacement is a pure string-substitute.
+    """
+    # --- Regex PII ---
+    regex_entities = detect_regex_pii(full_text)
     for email in regex_entities["emails"]:
-        text = text.replace(email, fake_email(email))
-
+        fake_email(email)
     for phone in regex_entities["phones"]:
-        text = text.replace(phone, fake_phone(phone))
+        fake_phone(phone)
 
-    # Skip spaCy on extremely large blocks
-    if len(text) > 50_000:
-        return text
+    # --- spaCy PII (skip on extremely large documents) ---
+    if len(full_text) <= 500_000:
+        spacy_entities = detect_spacy_entities(full_text)
+        for person in spacy_entities["persons"]:
+            fake_name(person)
+        for org in spacy_entities["organizations"]:
+            fake_company(org)
+        for loc in spacy_entities["locations"]:
+            fake_location(loc)
+        for date in spacy_entities["dates"]:
+            if re.match(r"^[A-Za-z]+ \d{1,2}, \d{4}$", date):
+                fake_date(date)
 
-    spacy_entities = detect_spacy_entities(text)
 
-    # Replace longer entities first
-    for person in sorted(
-        spacy_entities["persons"],
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(person, fake_name(person))
+def redact_text(text):
+    """
+    Apply pre-computed replacement maps to a single text fragment.
+    spaCy is NOT called here — it runs once at document level.
+    """
+    # Emails
+    for original, replacement in email_map.items():
+        text = text.replace(original, replacement)
 
-    for org in sorted(
-        spacy_entities["organizations"],
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(org, fake_company(org))
+    # Phones
+    for original, replacement in phone_map.items():
+        text = text.replace(original, replacement)
 
-    for loc in sorted(
-        spacy_entities["locations"],
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(loc, fake_location(loc))
+    # Persons (longer matches first to avoid partial replacements)
+    for original in sorted(name_map, key=len, reverse=True):
+        text = text.replace(original, name_map[original])
 
-    # Replace only full calendar dates
-    for date in spacy_entities["dates"]:
+    # Organisations
+    for original in sorted(company_map, key=len, reverse=True):
+        text = text.replace(original, company_map[original])
 
-        if re.match(
-            r"^[A-Za-z]+ \d{1,2}, \d{4}$",
-            date
-        ):
-            text = text.replace(date, fake_date(date))
+    # Locations
+    for original in sorted(location_map, key=len, reverse=True):
+        text = text.replace(original, location_map[original])
+
+    # Dates
+    for original, replacement in date_map.items():
+        text = text.replace(original, replacement)
 
     return text
 
@@ -347,6 +368,17 @@ def redact_tables(doc):
 
 
 def redact_document(doc):
+    # Clear maps so each request gets a clean slate (important for
+    # consistency and to prevent cross-request data leakage).
+    for m in (name_map, email_map, phone_map, company_map, location_map, date_map):
+        m.clear()
+
+    # === STEP 1: Single NLP pass over the full document ===
+    # Collect all text, run regex + spaCy once, populate replacement maps.
+    full_text = _get_all_doc_text(doc)
+    _build_replacement_maps(full_text)
+
+    # === STEP 2: Fast substitution pass — no NLP, just string.replace() ===
     for paragraph in doc.paragraphs:
         redact_paragraph(paragraph)
 
@@ -431,26 +463,6 @@ def blackout_identity_images_in_docx(docx_path):
 # =====================================================
 # Main
 # =====================================================
-
-# def main():
-#     input_path = "input/Red Herring Prospectus.docx"
-#     output_path = "output/Red_Herring_Prospectus_Redacted.docx"
-
-#     # Step 1: Redact editable text
-#     doc = load_document(input_path)
-#     redacted_doc = redact_document(doc)
-#     redacted_doc.save(output_path)
-
-#     # Step 2: Black out only Aadhaar/PAN images
-#     blackout_identity_images_in_docx(output_path)
-
-#     print("Redaction complete!")
-#     print(f"Output saved to: {output_path}")
-
-
-# if __name__ == "__main__":
-#     main()
-
 
 def main():
     input_path = "input/Red Herring Prospectus.docx"

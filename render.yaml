@@ -3,7 +3,7 @@ services:
     name: pii-redactor
     runtime: python
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: gunicorn --config gunicorn.conf.py pii_web.wsgi:application
+    startCommand: gunicorn pii_web.wsgi:application --config gunicorn.conf.py
     envVars:
       - key: DEBUG
         value: "False"
